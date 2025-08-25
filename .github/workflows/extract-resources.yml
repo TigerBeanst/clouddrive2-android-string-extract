@@ -176,7 +176,9 @@ jobs:
                 
                 for name, value in data_dict.items():
                     string_elem = ET.SubElement(resources, "string")
-                    string_elem.set("name", f"{prefix}{name}")
+                    # Replace spaces with underscores in the name attribute
+                    android_name = f"{prefix}{name.replace(' ', '_')}"
+                    string_elem.set("name", android_name)
                     string_elem.text = value
                 
                 # Write to file with proper XML formatting
