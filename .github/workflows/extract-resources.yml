@@ -7,6 +7,9 @@ on:
         description: 'CloudDrive version to extract (leave empty for latest)'
         required: false
         default: ''
+  schedule:
+    # Run every day at 00:00 UTC to check for new releases
+    - cron: '0 0 * * *'
 
 jobs:
   extract-resources:
@@ -62,15 +65,28 @@ jobs:
         
         # List contents to verify structure
         echo "Archive contents:"
-        find . -name "*.dll" -type f
+        find . -name "*.dll" -type f | head -10
+        
+        # Find the actual directory structure
+        EXTRACT_DIR=$(find . -name "CloudDriveModern.dll" -type f | head -1 | xargs dirname)
+        echo "Found CloudDriveModern.dll in: $EXTRACT_DIR"
+        
+        # Create symbolic links for easier access
+        if [ -n "$EXTRACT_DIR" ]; then
+          ln -sf "$EXTRACT_DIR" framework
+          echo "Created symlink: framework -> $EXTRACT_DIR"
+        else
+          echo "Error: CloudDriveModern.dll not found in archive"
+          exit 1
+        fi
         
         # Verify required files exist
-        if [ ! -f "wwwroot/_framework/CloudDriveModern.dll" ]; then
+        if [ ! -f "framework/CloudDriveModern.dll" ]; then
           echo "Error: CloudDriveModern.dll not found"
           exit 1
         fi
         
-        if [ ! -f "wwwroot/_framework/zh-CN/CloudDriveModern.resources.dll" ]; then
+        if [ ! -f "framework/zh-CN/CloudDriveModern.resources.dll" ]; then
           echo "Error: CloudDriveModern.resources.dll not found"
           exit 1
         fi
@@ -85,21 +101,30 @@ jobs:
         mkdir -p decompile-en decompile-zh
         
         echo "Decompiling English resources..."
-        ilspycmd -p -o ./decompile-en wwwroot/_framework/CloudDriveModern.dll
+        ilspycmd -p -o ./decompile-en framework/CloudDriveModern.dll
         
         echo "Decompiling Chinese resources..."
-        ilspycmd -p -o ./decompile-zh wwwroot/_framework/zh-CN/CloudDriveModern.resources.dll
+        ilspycmd -p -o ./decompile-zh framework/zh-CN/CloudDriveModern.resources.dll
+        
+        # List decompiled files to debug
+        echo "Decompiled English files:"
+        find decompile-en -name "*.resx" || echo "No .resx files found in English decompile"
+        
+        echo "Decompiled Chinese files:"
+        find decompile-zh -name "*.resx" || echo "No .resx files found in Chinese decompile"
         
         # Verify decompiled files exist
         if [ ! -f "decompile-en/CloudDriveModern.Resources.SharedResources.resx" ]; then
           echo "Error: English resources not found after decompilation"
-          find decompile-en -name "*.resx" || echo "No .resx files found"
+          echo "Available files in decompile-en:"
+          find decompile-en -type f | head -10
           exit 1
         fi
         
         if [ ! -f "decompile-zh/CloudDriveModern.Resources.SharedResources.zh-CN.resx" ]; then
           echo "Error: Chinese resources not found after decompilation"
-          find decompile-zh -name "*.resx" || echo "No .resx files found"
+          echo "Available files in decompile-zh:"
+          find decompile-zh -type f | head -10
           exit 1
         fi
         
