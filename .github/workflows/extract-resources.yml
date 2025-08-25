@@ -341,11 +341,18 @@ jobs:
         python convert_resources.py > $STATS_FILE 2>&1
         
         # Extract key statistics using the FINAL_STATS format
-        TOTAL_KEYS=$(grep "TOTAL_KEYS:" $STATS_FILE | cut -d':' -f2)
-        EN_ORIGINAL=$(grep "EN_ORIGINAL:" $STATS_FILE | cut -d':' -f2)
-        ZH_ORIGINAL=$(grep "ZH_ORIGINAL:" $STATS_FILE | cut -d':' -f2)
-        MISSING_EN=$(grep "MISSING_EN:" $STATS_FILE | cut -d':' -f2)
-        MISSING_ZH=$(grep "MISSING_ZH:" $STATS_FILE | cut -d':' -f2)
+        TOTAL_KEYS=$(grep "TOTAL_KEYS:" $STATS_FILE | cut -d':' -f2 | tr -d ' ')
+        EN_ORIGINAL=$(grep "EN_ORIGINAL:" $STATS_FILE | cut -d':' -f2 | tr -d ' ')
+        ZH_ORIGINAL=$(grep "ZH_ORIGINAL:" $STATS_FILE | cut -d':' -f2 | tr -d ' ')
+        MISSING_EN=$(grep "MISSING_EN:" $STATS_FILE | cut -d':' -f2 | tr -d ' ')
+        MISSING_ZH=$(grep "MISSING_ZH:" $STATS_FILE | cut -d':' -f2 | tr -d ' ')
+        
+        # Set default values if extraction failed
+        TOTAL_KEYS=${TOTAL_KEYS:-"N/A"}
+        EN_ORIGINAL=${EN_ORIGINAL:-"N/A"}
+        ZH_ORIGINAL=${ZH_ORIGINAL:-"N/A"}
+        MISSING_EN=${MISSING_EN:-"0"}
+        MISSING_ZH=${MISSING_ZH:-"0"}
         
         # Create simplified release notes with statistics
         cat > release_notes.md << EOF
@@ -354,9 +361,9 @@ jobs:
         从 CloudDrive ${{ steps.get-release.outputs.version }} 自动生成的 Android XML 资源文件
         
         ## 📊 统计信息
-        - **总字符串数**: ${TOTAL_KEYS:-"N/A"} 个
-        - **英文原有**: ${EN_ORIGINAL:-"N/A"} 个，**补齐**: ${MISSING_EN:-"0"} 个
-        - **中文原有**: ${ZH_ORIGINAL:-"N/A"} 个，**补齐**: ${MISSING_ZH:-"0"} 个
+        - **总字符串数**: $TOTAL_KEYS 个
+        - **英文原有**: $EN_ORIGINAL 个，**补齐**: $MISSING_EN 个
+        - **中文原有**: $ZH_ORIGINAL 个，**补齐**: $MISSING_ZH 个
         
         > 两个语言文件包含完全相同的字符串键。缺失的翻译已自动用键名填充。
         EOF
