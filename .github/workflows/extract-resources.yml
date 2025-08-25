@@ -11,6 +11,9 @@ on:
     # Run every day at 00:00 UTC to check for new releases
     - cron: '0 0 * * *'
 
+permissions:
+  contents: write
+  
 jobs:
   extract-resources:
     runs-on: ubuntu-latest
@@ -260,16 +263,68 @@ jobs:
       run: |
         cd work
         
+        # Extract statistics from the conversion output
+        STATS_FILE="conversion_stats.txt"
+        
+        # Run conversion again to capture statistics
+        python convert_resources.py > $STATS_FILE 2>&1
+        
+        # Extract key statistics
+        TOTAL_KEYS=$(grep "Total unique keys:" $STATS_FILE | sed 's/.*Total unique keys: //')
+        EN_STRINGS=$(grep "English strings:" $STATS_FILE | tail -1 | sed 's/.*English strings: //')
+        ZH_STRINGS=$(grep "Chinese strings:" $STATS_FILE | tail -1 | sed 's/.*Chinese strings: //')
+        MISSING_EN=$(grep "Missing in English" $STATS_FILE | sed 's/.*Missing in English (\([0-9]*\)).*/\1/' || echo "0")
+        MISSING_ZH=$(grep "Missing in Chinese" $STATS_FILE | sed 's/.*Missing in Chinese (\([0-9]*\)).*/\1/' || echo "0")
+        
+        # Create release notes with statistics
+        cat > release_notes.md << EOF
+        # CloudDrive Android 资源文件 v${{ steps.get-release.outputs.version_number }}
+        
+        从 CloudDrive ${{ steps.get-release.outputs.version }} 自动生成的 Android XML 资源文件
+        
+        ## 📊 统计信息
+        - **总字符串键数**: ${TOTAL_KEYS:-"N/A"}
+        - **英文字符串**: ${EN_STRINGS:-"N/A"}
+        - **中文字符串**: ${ZH_STRINGS:-"N/A"}
+        - **英文中缺失**: ${MISSING_EN:-"0"} 个（已用键名自动填充）
+        - **中文中缺失**: ${MISSING_ZH:-"0"} 个（已用键名自动填充）
+        
+        ## 📦 文件内容
+        - \`values/cd2.xml\` - 英文字符串，前缀为 \`cd2_locale_\`
+        - \`values-zh/cd2.xml\` - 中文字符串，前缀为 \`cd2_locale_\`
+        
+        ## 🔧 Android 使用方法
+        将文件添加到你的 Android 项目资源目录中：
+        \`\`\`xml
+        <string name="example">@string/cd2_locale_ConfigureFullScanRules</string>
+        \`\`\`
+        
+        或在代码中使用：
+        \`\`\`java
+        String text = getString(R.string.cd2_locale_ConfigureFullScanRules);
+        \`\`\`
+        
+        ## ⚡ 自动同步
+        此版本在 CloudDrive 发布新版本时自动生成。
+        两个语言文件包含完全相同的字符串键以确保一致性。
+        缺失的翻译会自动用键名填充，避免应用崩溃。
+        EOF
+        
         # Check if this version already has a release
         RELEASE_TAG="android-resources-${{ steps.get-release.outputs.version_number }}"
         
         if gh release view $RELEASE_TAG >/dev/null 2>&1; then
-          echo "Release $RELEASE_TAG already exists, updating assets..."
+          echo "Release $RELEASE_TAG already exists, updating assets and notes..."
+          gh release edit $RELEASE_TAG \
+            --notes-file release_notes.md
           gh release upload $RELEASE_TAG clouddrive-android-resources.zip --clobber
         else
           echo "Creating new release $RELEASE_TAG..."
           gh release create $RELEASE_TAG \
             --title "CloudDrive Android Resources ${{ steps.get-release.outputs.version_number }}" \
-            --notes "Auto-generated Android XML resources from CloudDrive ${{ steps.get-release.outputs.version }}" \
+            --notes-file release_notes.md \
             clouddrive-android-resources.zip
         fi
+        
+        echo "Release notes:"
+        cat release_notes.md
