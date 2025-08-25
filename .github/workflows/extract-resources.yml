@@ -147,7 +147,29 @@ jobs:
         import xml.etree.ElementTree as ET
         import os
         import zipfile
+        import re
         from pathlib import Path
+
+        def sanitize_android_name(name):
+            """Sanitize name for Android XML attribute (name attribute)"""
+            # Replace spaces and colons with underscores
+            sanitized = name.replace(' ', '_').replace(':', '_')
+            # Replace other special characters that are not allowed in XML attribute names
+            sanitized = re.sub(r'[^a-zA-Z0-9_]', '_', sanitized)
+            # Remove consecutive underscores and leading/trailing underscores
+            sanitized = re.sub(r'_+', '_', sanitized).strip('_')
+            return sanitized
+
+        def escape_android_value(value):
+            """Escape special characters for Android XML string values"""
+            # Escape XML special characters
+            escaped = value.replace('&', '&amp;')
+            escaped = escaped.replace('<', '&lt;')
+            escaped = escaped.replace('>', '&gt;')
+            escaped = escaped.replace('"', '\\"')
+            escaped = escaped.replace("'", "\\'")
+            # Preserve formatting placeholders like {0}, {1}, etc.
+            return escaped
 
         def parse_resx_file(resx_file):
             """Parse .resx file and return a dictionary of name-value pairs"""
@@ -176,10 +198,12 @@ jobs:
                 
                 for name, value in data_dict.items():
                     string_elem = ET.SubElement(resources, "string")
-                    # Replace spaces with underscores in the name attribute
-                    android_name = f"{prefix}{name.replace(' ', '_')}"
+                    # Sanitize name for Android XML attribute
+                    android_name = f"{prefix}{sanitize_android_name(name)}"
                     string_elem.set("name", android_name)
-                    string_elem.text = value
+                    # Escape special characters in the value
+                    escaped_value = escape_android_value(value)
+                    string_elem.text = escaped_value
                 
                 # Write to file with proper XML formatting
                 tree_out = ET.ElementTree(resources)
