@@ -1,0 +1,250 @@
+name: Extract CloudDrive Android Resources
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'CloudDrive version to extract (leave empty for latest)'
+        required: false
+        default: ''
+
+jobs:
+  extract-resources:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '8.0.x'
+
+    - name: Install ILSpy CLI
+      run: |
+        dotnet tool install --global ilspycmd
+        echo "ILSpy CLI installed successfully"
+        ilspycmd --version
+
+    - name: Get latest release info
+      id: get-release
+      run: |
+        if [ -n "${{ github.event.inputs.version }}" ]; then
+          VERSION="${{ github.event.inputs.version }}"
+          echo "Using specified version: $VERSION"
+        else
+          # Get latest release version from GitHub API
+          VERSION=$(curl -s https://api.github.com/repos/cloud-fs/cloud-fs.github.io/releases/latest | jq -r '.tag_name')
+          echo "Latest version found: $VERSION"
+        fi
+        
+        # Remove 'v' prefix if present
+        VERSION_NUMBER=$(echo $VERSION | sed 's/^v//')
+        
+        echo "version=$VERSION" >> $GITHUB_OUTPUT
+        echo "version_number=$VERSION_NUMBER" >> $GITHUB_OUTPUT
+        echo "download_url=https://github.com/cloud-fs/cloud-fs.github.io/releases/download/$VERSION/clouddrive-2-android-x86_64-$VERSION_NUMBER.tgz" >> $GITHUB_OUTPUT
+
+    - name: Download and extract CloudDrive release
+      run: |
+        echo "Downloading from: ${{ steps.get-release.outputs.download_url }}"
+        
+        # Create working directory
+        mkdir -p work
+        cd work
+        
+        # Download the release file
+        curl -L -o clouddrive-android.tgz "${{ steps.get-release.outputs.download_url }}"
+        
+        # Extract the archive
+        tar -xzf clouddrive-android.tgz
+        
+        # List contents to verify structure
+        echo "Archive contents:"
+        find . -name "*.dll" -type f
+        
+        # Verify required files exist
+        if [ ! -f "wwwroot/_framework/CloudDriveModern.dll" ]; then
+          echo "Error: CloudDriveModern.dll not found"
+          exit 1
+        fi
+        
+        if [ ! -f "wwwroot/_framework/zh-CN/CloudDriveModern.resources.dll" ]; then
+          echo "Error: CloudDriveModern.resources.dll not found"
+          exit 1
+        fi
+        
+        echo "Required DLL files found successfully"
+
+    - name: Decompile DLL files
+      run: |
+        cd work
+        
+        # Create decompile directories
+        mkdir -p decompile-en decompile-zh
+        
+        echo "Decompiling English resources..."
+        ilspycmd -p -o ./decompile-en wwwroot/_framework/CloudDriveModern.dll
+        
+        echo "Decompiling Chinese resources..."
+        ilspycmd -p -o ./decompile-zh wwwroot/_framework/zh-CN/CloudDriveModern.resources.dll
+        
+        # Verify decompiled files exist
+        if [ ! -f "decompile-en/CloudDriveModern.Resources.SharedResources.resx" ]; then
+          echo "Error: English resources not found after decompilation"
+          find decompile-en -name "*.resx" || echo "No .resx files found"
+          exit 1
+        fi
+        
+        if [ ! -f "decompile-zh/CloudDriveModern.Resources.SharedResources.zh-CN.resx" ]; then
+          echo "Error: Chinese resources not found after decompilation"
+          find decompile-zh -name "*.resx" || echo "No .resx files found"
+          exit 1
+        fi
+        
+        echo "Decompilation completed successfully"
+
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+
+    - name: Convert resources to Android XML
+      run: |
+        cd work
+        
+        # Create the conversion script
+        cat > convert_resources.py << 'EOF'
+        import xml.etree.ElementTree as ET
+        import os
+        import zipfile
+        from pathlib import Path
+
+        def convert_resx_to_android_xml(resx_file, output_file, prefix="cd2_locale_"):
+            """Convert .resx file to Android strings.xml format"""
+            try:
+                tree = ET.parse(resx_file)
+                root = tree.getroot()
+                
+                # Create Android strings.xml structure
+                resources = ET.Element("resources")
+                
+                # Find all data elements with name and value
+                for data in root.findall('.//data[@name]'):
+                    name_attr = data.get('name')
+                    value_elem = data.find('value')
+                    
+                    if name_attr and value_elem is not None and value_elem.text:
+                        # Create string element
+                        string_elem = ET.SubElement(resources, "string")
+                        string_elem.set("name", f"{prefix}{name_attr}")
+                        string_elem.text = value_elem.text.strip()
+                
+                # Write to file with proper XML formatting
+                tree_out = ET.ElementTree(resources)
+                ET.indent(tree_out, space="  ", level=0)
+                tree_out.write(output_file, encoding='utf-8', xml_declaration=True)
+                
+                print(f"Converted {resx_file} -> {output_file}")
+                return True
+                
+            except Exception as e:
+                print(f"Error converting {resx_file}: {e}")
+                return False
+
+        def main():
+            # File paths
+            en_resx = "decompile-en/CloudDriveModern.Resources.SharedResources.resx"
+            zh_resx = "decompile-zh/CloudDriveModern.Resources.SharedResources.zh-CN.resx"
+            
+            # Create output directories
+            os.makedirs("android-resources/values", exist_ok=True)
+            os.makedirs("android-resources/values-zh", exist_ok=True)
+            
+            # Convert files
+            success_en = convert_resx_to_android_xml(
+                en_resx, 
+                "android-resources/values/cd2.xml"
+            )
+            
+            success_zh = convert_resx_to_android_xml(
+                zh_resx, 
+                "android-resources/values-zh/cd2.xml"
+            )
+            
+            if not success_en or not success_zh:
+                exit(1)
+            
+            # Create ZIP file
+            with zipfile.ZipFile("clouddrive-android-resources.zip", 'w') as zip_file:
+                zip_file.write("android-resources/values/cd2.xml", "values/cd2.xml")
+                zip_file.write("android-resources/values-zh/cd2.xml", "values-zh/cd2.xml")
+            
+            print("Created clouddrive-android-resources.zip successfully")
+            
+            # Print statistics
+            def count_strings(xml_file):
+                tree = ET.parse(xml_file)
+                return len(tree.findall('.//string'))
+            
+            en_count = count_strings("android-resources/values/cd2.xml")
+            zh_count = count_strings("android-resources/values-zh/cd2.xml")
+            
+            print(f"English strings: {en_count}")
+            print(f"Chinese strings: {zh_count}")
+
+        if __name__ == "__main__":
+            main()
+        EOF
+        
+        # Run the conversion script
+        python convert_resources.py
+
+    - name: Verify generated files
+      run: |
+        cd work
+        
+        # Check if files were generated
+        if [ ! -f "clouddrive-android-resources.zip" ]; then
+          echo "Error: ZIP file not created"
+          exit 1
+        fi
+        
+        # Extract and verify ZIP contents
+        unzip -l clouddrive-android-resources.zip
+        
+        # Show sample content from generated files
+        echo "=== Sample English XML content ==="
+        head -20 android-resources/values/cd2.xml
+        
+        echo "=== Sample Chinese XML content ==="
+        head -20 android-resources/values-zh/cd2.xml
+
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: clouddrive-android-resources-${{ steps.get-release.outputs.version_number }}
+        path: work/clouddrive-android-resources.zip
+        retention-days: 30
+
+    - name: Create Release (if new version)
+      if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        cd work
+        
+        # Check if this version already has a release
+        RELEASE_TAG="android-resources-${{ steps.get-release.outputs.version_number }}"
+        
+        if gh release view $RELEASE_TAG >/dev/null 2>&1; then
+          echo "Release $RELEASE_TAG already exists, updating assets..."
+          gh release upload $RELEASE_TAG clouddrive-android-resources.zip --clobber
+        else
+          echo "Creating new release $RELEASE_TAG..."
+          gh release create $RELEASE_TAG \
+            --title "CloudDrive Android Resources ${{ steps.get-release.outputs.version_number }}" \
+            --notes "Auto-generated Android XML resources from CloudDrive ${{ steps.get-release.outputs.version }}" \
+            clouddrive-android-resources.zip
+        fi
