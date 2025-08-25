@@ -269,45 +269,25 @@ jobs:
         # Run conversion again to capture statistics
         python convert_resources.py > $STATS_FILE 2>&1
         
-        # Extract key statistics
-        TOTAL_KEYS=$(grep "Total unique keys:" $STATS_FILE | sed 's/.*Total unique keys: //')
-        EN_STRINGS=$(grep "English strings:" $STATS_FILE | tail -1 | sed 's/.*English strings: //')
-        ZH_STRINGS=$(grep "Chinese strings:" $STATS_FILE | tail -1 | sed 's/.*Chinese strings: //')
-        MISSING_EN=$(grep "Missing in English" $STATS_FILE | sed 's/.*Missing in English (\([0-9]*\)).*/\1/' || echo "0")
-        MISSING_ZH=$(grep "Missing in Chinese" $STATS_FILE | sed 's/.*Missing in Chinese (\([0-9]*\)).*/\1/' || echo "0")
+        # Extract key statistics using the FINAL_STATS format
+        TOTAL_KEYS=$(grep "TOTAL_KEYS:" $STATS_FILE | cut -d':' -f2)
+        EN_ORIGINAL=$(grep "EN_ORIGINAL:" $STATS_FILE | cut -d':' -f2)
+        ZH_ORIGINAL=$(grep "ZH_ORIGINAL:" $STATS_FILE | cut -d':' -f2)
+        MISSING_EN=$(grep "MISSING_EN:" $STATS_FILE | cut -d':' -f2)
+        MISSING_ZH=$(grep "MISSING_ZH:" $STATS_FILE | cut -d':' -f2)
         
-        # Create release notes with statistics
+        # Create simplified release notes with statistics
         cat > release_notes.md << EOF
         # CloudDrive Android 资源文件 v${{ steps.get-release.outputs.version_number }}
         
         从 CloudDrive ${{ steps.get-release.outputs.version }} 自动生成的 Android XML 资源文件
         
         ## 📊 统计信息
-        - **总字符串键数**: ${TOTAL_KEYS:-"N/A"}
-        - **英文字符串**: ${EN_STRINGS:-"N/A"}
-        - **中文字符串**: ${ZH_STRINGS:-"N/A"}
-        - **英文中缺失**: ${MISSING_EN:-"0"} 个（已用键名自动填充）
-        - **中文中缺失**: ${MISSING_ZH:-"0"} 个（已用键名自动填充）
+        - **总字符串数**: ${TOTAL_KEYS:-"N/A"} 个
+        - **英文原有**: ${EN_ORIGINAL:-"N/A"} 个，**补齐**: ${MISSING_EN:-"0"} 个
+        - **中文原有**: ${ZH_ORIGINAL:-"N/A"} 个，**补齐**: ${MISSING_ZH:-"0"} 个
         
-        ## 📦 文件内容
-        - \`values/cd2.xml\` - 英文字符串，前缀为 \`cd2_locale_\`
-        - \`values-zh/cd2.xml\` - 中文字符串，前缀为 \`cd2_locale_\`
-        
-        ## 🔧 Android 使用方法
-        将文件添加到你的 Android 项目资源目录中：
-        \`\`\`xml
-        <string name="example">@string/cd2_locale_ConfigureFullScanRules</string>
-        \`\`\`
-        
-        或在代码中使用：
-        \`\`\`java
-        String text = getString(R.string.cd2_locale_ConfigureFullScanRules);
-        \`\`\`
-        
-        ## ⚡ 自动同步
-        此版本在 CloudDrive 发布新版本时自动生成。
-        两个语言文件包含完全相同的字符串键以确保一致性。
-        缺失的翻译会自动用键名填充，避免应用崩溃。
+        > 两个语言文件包含完全相同的字符串键。缺失的翻译已自动用键名填充。
         EOF
         
         # Check if this version already has a release
