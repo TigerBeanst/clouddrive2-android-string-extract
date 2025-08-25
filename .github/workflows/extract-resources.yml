@@ -195,17 +195,25 @@ jobs:
             """Ensure both language dictionaries have the same keys"""
             all_keys = set(en_data.keys()) | set(zh_data.keys())
             
+            # Create copies to avoid modifying original data
+            en_completed = en_data.copy()
+            zh_completed = zh_data.copy()
+            
             # Fill missing fields in English with field names
+            missing_in_en = []
             for key in all_keys:
-                if key not in en_data:
-                    en_data[key] = key
+                if key not in en_completed:
+                    en_completed[key] = key
+                    missing_in_en.append(key)
             
             # Fill missing fields in Chinese with field names
+            missing_in_zh = []
             for key in all_keys:
-                if key not in zh_data:
-                    zh_data[key] = key
+                if key not in zh_completed:
+                    zh_completed[key] = key
+                    missing_in_zh.append(key)
             
-            return en_data, zh_data, len(all_keys)
+            return en_completed, zh_completed, len(all_keys), missing_in_en, missing_in_zh
 
         def main():
             # File paths
@@ -220,7 +228,7 @@ jobs:
             print(f"Chinese original keys: {len(zh_data)}")
             
             # Complete missing fields
-            en_completed, zh_completed, total_keys = complete_missing_fields(en_data, zh_data)
+            en_completed, zh_completed, total_keys, missing_in_en, missing_in_zh = complete_missing_fields(en_data, zh_data)
             
             # Create output directories
             os.makedirs("android-resources/values", exist_ok=True)
@@ -248,35 +256,17 @@ jobs:
             print("Created clouddrive-android-resources.zip successfully")
             
             # Print detailed statistics
-            missing_in_en = [key for key in zh_completed.keys() if key not in en_data]
-            missing_in_zh = [key for key in en_completed.keys() if key not in zh_data]
-            
             print(f"\n=== 统计信息 ===")
             print(f"总字符串数: {total_keys} 个")
             print(f"英文原有: {len(en_data)} 个，补齐: {len(missing_in_en)} 个")
             print(f"中文原有: {len(zh_data)} 个，补齐: {len(missing_in_zh)} 个")
             
-            if missing_in_en:
-                print(f"\n英文中缺失的字段 (已用字段名补齐):")
-                for i, key in enumerate(missing_in_en[:5]):  # Show first 5 as example
-                    print(f"  - {key}")
-                if len(missing_in_en) > 5:
-                    print(f"  ... 还有 {len(missing_in_en) - 5} 个")
-            
-            if missing_in_zh:
-                print(f"\n中文中缺失的字段 (已用字段名补齐):")
-                for i, key in enumerate(missing_in_zh[:5]):  # Show first 5 as example
-                    print(f"  - {key}")
-                if len(missing_in_zh) > 5:
-                    print(f"  ... 还有 {len(missing_in_zh) - 5} 个")
-            
             # Output final stats for GitHub Actions to capture
-            print(f"\nFINAL_STATS:")
-            print(f"TOTAL_KEYS:{total_keys}")
-            print(f"EN_ORIGINAL:{len(en_data)}")
-            print(f"ZH_ORIGINAL:{len(zh_data)}")
-            print(f"MISSING_EN:{len(missing_in_en)}")
-            print(f"MISSING_ZH:{len(missing_in_zh)}")
+            print(f"FINAL_STATS:TOTAL_KEYS:{total_keys}")
+            print(f"FINAL_STATS:EN_ORIGINAL:{len(en_data)}")
+            print(f"FINAL_STATS:ZH_ORIGINAL:{len(zh_data)}")
+            print(f"FINAL_STATS:MISSING_EN:{len(missing_in_en)}")
+            print(f"FINAL_STATS:MISSING_ZH:{len(missing_in_zh)}")
 
         if __name__ == "__main__":
             main()
@@ -341,11 +331,11 @@ jobs:
         python convert_resources.py > $STATS_FILE 2>&1
         
         # Extract key statistics using the FINAL_STATS format
-        TOTAL_KEYS=$(grep "TOTAL_KEYS:" $STATS_FILE | cut -d':' -f2 | tr -d ' ')
-        EN_ORIGINAL=$(grep "EN_ORIGINAL:" $STATS_FILE | cut -d':' -f2 | tr -d ' ')
-        ZH_ORIGINAL=$(grep "ZH_ORIGINAL:" $STATS_FILE | cut -d':' -f2 | tr -d ' ')
-        MISSING_EN=$(grep "MISSING_EN:" $STATS_FILE | cut -d':' -f2 | tr -d ' ')
-        MISSING_ZH=$(grep "MISSING_ZH:" $STATS_FILE | cut -d':' -f2 | tr -d ' ')
+        TOTAL_KEYS=$(grep "FINAL_STATS:TOTAL_KEYS:" $STATS_FILE | cut -d':' -f3 | tr -d ' ')
+        EN_ORIGINAL=$(grep "FINAL_STATS:EN_ORIGINAL:" $STATS_FILE | cut -d':' -f3 | tr -d ' ')
+        ZH_ORIGINAL=$(grep "FINAL_STATS:ZH_ORIGINAL:" $STATS_FILE | cut -d':' -f3 | tr -d ' ')
+        MISSING_EN=$(grep "FINAL_STATS:MISSING_EN:" $STATS_FILE | cut -d':' -f3 | tr -d ' ')
+        MISSING_ZH=$(grep "FINAL_STATS:MISSING_ZH:" $STATS_FILE | cut -d':' -f3 | tr -d ' ')
         
         # Set default values if extraction failed
         TOTAL_KEYS=${TOTAL_KEYS:-"N/A"}
