@@ -148,16 +148,60 @@ jobs:
         import os
         import zipfile
         import re
+        import hashlib
         from pathlib import Path
 
         def sanitize_android_name(name):
             """Sanitize name for Android XML attribute (name attribute)"""
-            # Replace spaces and colons with underscores
-            sanitized = name.replace(' ', '_').replace(':', '_')
-            # Replace other special characters that are not allowed in XML attribute names
+            # Replace common punctuation with descriptive words
+            replacements = {
+                '.': '_dot_',
+                ',': '_comma_',
+                '!': '_exclamation_',
+                '?': '_question_',
+                ':': '_colon_',
+                ';': '_semicolon_',
+                '(': '_lparen_',
+                ')': '_rparen_',
+                '[': '_lbracket_',
+                ']': '_rbracket_',
+                '{': '_lbrace_',
+                '}': '_rbrace_',
+                '/': '_slash_',
+                '\\': '_backslash_',
+                '@': '_at_',
+                '#': '_hash_',
+                '$': '_dollar_',
+                '%': '_percent_',
+                '&': '_and_',
+                '*': '_asterisk_',
+                '+': '_plus_',
+                '-': '_minus_',
+                '=': '_equals_',
+                '<': '_lt_',
+                '>': '_gt_',
+                '|': '_pipe_',
+                '~': '_tilde_',
+                '^': '_caret_',
+                '`': '_backtick_',
+                "'": '_apostrophe_',
+                '"': '_quote_'
+            }
+            
+            # Replace punctuation with descriptive words
+            sanitized = name
+            for char, replacement in replacements.items():
+                sanitized = sanitized.replace(char, replacement)
+            
+            # Replace spaces with underscores
+            sanitized = sanitized.replace(' ', '_')
+            
+            # Replace any remaining non-alphanumeric characters with underscores
             sanitized = re.sub(r'[^a-zA-Z0-9_]', '_', sanitized)
+            
             # Remove consecutive underscores and leading/trailing underscores
             sanitized = re.sub(r'_+', '_', sanitized).strip('_')
+            
             return sanitized
 
         def escape_android_value(value):
@@ -198,8 +242,7 @@ jobs:
                 
                 for name, value in data_dict.items():
                     string_elem = ET.SubElement(resources, "string")
-                    # Sanitize name for Android XML attribute
-                    android_name = f"{prefix}{sanitize_android_name(name)}"
+                    android_name = f"{prefix}{name}"
                     string_elem.set("name", android_name)
                     # Escape special characters in the value
                     escaped_value = escape_android_value(value)
@@ -253,8 +296,22 @@ jobs:
             print(f"English original keys: {len(en_data)}")
             print(f"Chinese original keys: {len(zh_data)}")
             
+            # Create sanitized versions of the data
+            en_sanitized = {}
+            zh_sanitized = {}
+            
+            for key, value in en_data.items():
+                sanitized_key = sanitize_android_name(key)
+                en_sanitized[sanitized_key] = value
+            
+            for key, value in zh_data.items():
+                sanitized_key = sanitize_android_name(key)
+                zh_sanitized[sanitized_key] = value
+            
             # Complete missing fields
-            en_completed, zh_completed, total_keys, missing_in_en, missing_in_zh = complete_missing_fields(en_data, zh_data)
+            en_completed, zh_completed, total_keys, missing_in_en, missing_in_zh = complete_missing_fields(
+                en_sanitized, zh_sanitized
+            )
             
             # Create output directories
             os.makedirs("android-resources/values", exist_ok=True)
