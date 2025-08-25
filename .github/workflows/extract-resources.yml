@@ -142,62 +142,98 @@ jobs:
       run: |
         cd work
         
-        # Create the conversion script
+        # Create the conversion script with field completion functionality
         cat > convert_resources.py << 'EOF'
         import xml.etree.ElementTree as ET
         import os
         import zipfile
         from pathlib import Path
 
-        def convert_resx_to_android_xml(resx_file, output_file, prefix="cd2_locale_"):
-            """Convert .resx file to Android strings.xml format"""
+        def parse_resx_file(resx_file):
+            """Parse .resx file and return a dictionary of name-value pairs"""
             try:
                 tree = ET.parse(resx_file)
                 root = tree.getroot()
                 
-                # Create Android strings.xml structure
-                resources = ET.Element("resources")
-                
-                # Find all data elements with name and value
+                data_dict = {}
                 for data in root.findall('.//data[@name]'):
                     name_attr = data.get('name')
                     value_elem = data.find('value')
                     
                     if name_attr and value_elem is not None and value_elem.text:
-                        # Create string element
-                        string_elem = ET.SubElement(resources, "string")
-                        string_elem.set("name", f"{prefix}{name_attr}")
-                        string_elem.text = value_elem.text.strip()
+                        data_dict[name_attr] = value_elem.text.strip()
+                
+                return data_dict
+                
+            except Exception as e:
+                print(f"Error parsing {resx_file}: {e}")
+                return {}
+
+        def create_android_xml(data_dict, output_file, prefix="cd2_locale_"):
+            """Create Android strings.xml from data dictionary"""
+            try:
+                resources = ET.Element("resources")
+                
+                for name, value in data_dict.items():
+                    string_elem = ET.SubElement(resources, "string")
+                    string_elem.set("name", f"{prefix}{name}")
+                    string_elem.text = value
                 
                 # Write to file with proper XML formatting
                 tree_out = ET.ElementTree(resources)
                 ET.indent(tree_out, space="  ", level=0)
                 tree_out.write(output_file, encoding='utf-8', xml_declaration=True)
                 
-                print(f"Converted {resx_file} -> {output_file}")
+                print(f"Created Android XML: {output_file}")
                 return True
                 
             except Exception as e:
-                print(f"Error converting {resx_file}: {e}")
+                print(f"Error creating Android XML {output_file}: {e}")
                 return False
+
+        def complete_missing_fields(en_data, zh_data):
+            """Ensure both language dictionaries have the same keys"""
+            all_keys = set(en_data.keys()) | set(zh_data.keys())
+            
+            # Fill missing fields in English with field names
+            for key in all_keys:
+                if key not in en_data:
+                    en_data[key] = key
+            
+            # Fill missing fields in Chinese with field names
+            for key in all_keys:
+                if key not in zh_data:
+                    zh_data[key] = key
+            
+            return en_data, zh_data, len(all_keys)
 
         def main():
             # File paths
             en_resx = "decompile-en/CloudDriveModern.Resources.SharedResources.resx"
             zh_resx = "decompile-zh/CloudDriveModern.Resources.SharedResources.zh-CN.resx"
             
+            # Parse both resource files
+            en_data = parse_resx_file(en_resx)
+            zh_data = parse_resx_file(zh_resx)
+            
+            print(f"English original keys: {len(en_data)}")
+            print(f"Chinese original keys: {len(zh_data)}")
+            
+            # Complete missing fields
+            en_completed, zh_completed, total_keys = complete_missing_fields(en_data, zh_data)
+            
             # Create output directories
             os.makedirs("android-resources/values", exist_ok=True)
             os.makedirs("android-resources/values-zh", exist_ok=True)
             
-            # Convert files
-            success_en = convert_resx_to_android_xml(
-                en_resx, 
+            # Create Android XML files
+            success_en = create_android_xml(
+                en_completed, 
                 "android-resources/values/cd2.xml"
             )
             
-            success_zh = convert_resx_to_android_xml(
-                zh_resx, 
+            success_zh = create_android_xml(
+                zh_completed, 
                 "android-resources/values-zh/cd2.xml"
             )
             
@@ -211,16 +247,36 @@ jobs:
             
             print("Created clouddrive-android-resources.zip successfully")
             
-            # Print statistics
-            def count_strings(xml_file):
-                tree = ET.parse(xml_file)
-                return len(tree.findall('.//string'))
+            # Print detailed statistics
+            missing_in_en = [key for key in zh_completed.keys() if key not in en_data]
+            missing_in_zh = [key for key in en_completed.keys() if key not in zh_data]
             
-            en_count = count_strings("android-resources/values/cd2.xml")
-            zh_count = count_strings("android-resources/values-zh/cd2.xml")
+            print(f"\n=== 统计信息 ===")
+            print(f"总字符串数: {total_keys} 个")
+            print(f"英文原有: {len(en_data)} 个，补齐: {len(missing_in_en)} 个")
+            print(f"中文原有: {len(zh_data)} 个，补齐: {len(missing_in_zh)} 个")
             
-            print(f"English strings: {en_count}")
-            print(f"Chinese strings: {zh_count}")
+            if missing_in_en:
+                print(f"\n英文中缺失的字段 (已用字段名补齐):")
+                for i, key in enumerate(missing_in_en[:5]):  # Show first 5 as example
+                    print(f"  - {key}")
+                if len(missing_in_en) > 5:
+                    print(f"  ... 还有 {len(missing_in_en) - 5} 个")
+            
+            if missing_in_zh:
+                print(f"\n中文中缺失的字段 (已用字段名补齐):")
+                for i, key in enumerate(missing_in_zh[:5]):  # Show first 5 as example
+                    print(f"  - {key}")
+                if len(missing_in_zh) > 5:
+                    print(f"  ... 还有 {len(missing_in_zh) - 5} 个")
+            
+            # Output final stats for GitHub Actions to capture
+            print(f"\nFINAL_STATS:")
+            print(f"TOTAL_KEYS:{total_keys}")
+            print(f"EN_ORIGINAL:{len(en_data)}")
+            print(f"ZH_ORIGINAL:{len(zh_data)}")
+            print(f"MISSING_EN:{len(missing_in_en)}")
+            print(f"MISSING_ZH:{len(missing_in_zh)}")
 
         if __name__ == "__main__":
             main()
@@ -248,6 +304,21 @@ jobs:
         
         echo "=== Sample Chinese XML content ==="
         head -20 android-resources/values-zh/cd2.xml
+        
+        # Verify both files have the same number of string elements
+        echo "=== Verification: Checking string counts ==="
+        en_count=$(grep -c '<string name=' android-resources/values/cd2.xml)
+        zh_count=$(grep -c '<string name=' android-resources/values-zh/cd2.xml)
+        
+        echo "English strings count: $en_count"
+        echo "Chinese strings count: $zh_count"
+        
+        if [ "$en_count" -eq "$zh_count" ]; then
+          echo "✓ SUCCESS: Both language files have the same number of strings"
+        else
+          echo "✗ ERROR: String counts don't match: English=$en_count, Chinese=$zh_count"
+          exit 1
+        fi
 
     - name: Upload artifacts
       uses: actions/upload-artifact@v4
